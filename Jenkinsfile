@@ -30,7 +30,7 @@ pipeline {
                 echo "🧪 Running Basic Python Import Tests"
                 sh """
                     docker run --rm ${FULL_IMAGE}:${IMAGE_TAG} \
-                      python -c "import app; import database; print('✅ All Core Modules Imported Successfully!')"
+                      python -c "import app; import database; print('✅ Core Modules OK')"
                 """
             }
         }
@@ -56,10 +56,7 @@ pipeline {
             steps {
                 echo "🚀 Deploying multi-container setup (Flask + MySQL) on port 5001"
                 sh """
-                    # DOCKER_IMAGE এনভায়রনমেন্ট সেট করা
                     export DOCKER_IMAGE=${FULL_IMAGE}:${IMAGE_TAG}
-                    
-                    # docker compose (স্পেস সহ) ব্যবহার করুন
                     docker compose down || true
                     docker compose pull
                     docker compose up -d --remove-orphans
@@ -69,15 +66,21 @@ pipeline {
 
         stage('Health Check') {
             steps {
-                echo "🔍 Checking App Health status..."
+                echo "🔍 Checking App Health status with retry logic..."
                 sh """
-                    sleep 10
-                    # Flask Health endpoint চেক
-                    curl -sf http://localhost:5001/health
-                    echo ""
-                    # Main Page চেক
-                    curl -sf http://localhost:5001/ | head -c 200
-                    echo ""
+                    # 12 বার ট্রাই করবে (মোট ৬০ সেকেন্ড ওয়েট করবে ডাটাবেজ রেডি হওয়ার জন্য)
+                    for i in {1..12}; do
+                        echo "Attempt \$i: Testing http://localhost:5001/health..."
+                        if curl -sf http://localhost:5001/health; then
+                            echo "\n✅ Health check passed!"
+                            exit 0
+                        fi
+                        echo "App/DB is initializing... Waiting 5 seconds..."
+                        sleep 5
+                    done
+                    
+                    echo "❌ Health check timed out!"
+                    exit 1
                 """
             }
         }
@@ -89,11 +92,13 @@ pipeline {
             sh 'docker image prune -f || true'
         }
         success {
-            echo "✅ LIVE: http://YOUR_PRIVATE_IP:5001"
+            echo "✅ LIVE: http://YOUR_SERVER_IP:5001"
             echo "✅ Docker Hub: https://hub.docker.com/r/${DOCKER_USER}/${IMAGE_NAME}"
         }
         failure {
-            echo "❌ Pipeline failed"
+            echo "❌ Pipeline failed! Fetching logs..."
+            # ফেইল করলে কন্টেইনারের লোগ প্রিন্ট করে দেখাবে সমস্যা কোথায়
+            sh 'docker compose logs --tail=50 || true'
         }
     }
 }
