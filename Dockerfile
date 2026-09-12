@@ -1,38 +1,37 @@
-FROM python:3.11-slim
+# Debian Bookworm বেস ইমেজ ব্যবহার করা হচ্ছে (Stable)
+FROM python:3.11-slim-bookworm
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=app.py
+# debconf এর Interactive Warning বন্ধ করতে DEBIAN_FRONTEND সেট করা হয়েছে
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_APP=app.py
 
-# Set work directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# সিস্টেম ডিপেন্ডেন্সি ইনস্টল (curl সহ অন্যান্য প্রয়োজনীয় প্যাকেজ)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    build-essential \
     default-libmysqlclient-dev \
     pkg-config \
     iputils-ping \
     net-tools \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Python Packages install
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Application code copy
 COPY . .
 
-# Create upload directory
+# Upload Directory তৈরি
 RUN mkdir -p /tmp/uploads
 
-# Expose port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5000/ || exit 1
-
-# Run with gunicorn
+# Gunicorn দিয়ে অ্যাপ রান করা
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "app:app"]
