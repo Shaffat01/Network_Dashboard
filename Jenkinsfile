@@ -57,11 +57,7 @@ pipeline {
                 echo "🚀 Deploying multi-container setup (Flask + MySQL) on port 5001"
                 sh """
                     export DOCKER_IMAGE=${FULL_IMAGE}:${IMAGE_TAG}
-                    
-                    # পুরানো কন্টেইনার থামানো
                     docker compose down --volumes --remove-orphans || true
-                    
-                    # নতুন কন্টেইনার ব্যাকগ্রাউন্ডে চালু করা
                     docker compose up -d
                 """
             }
@@ -71,7 +67,6 @@ pipeline {
             steps {
                 echo "🔍 Checking App Health status with retry logic..."
                 sh """
-                    # 12 বার ট্রাই করবে (মোট ৬০ সেকেন্ড ওয়েট করবে ডাটাবেজ রেডি হওয়ার জন্য)
                     for i in {1..12}; do
                         echo "Attempt \$i: Testing http://localhost:5001/health..."
                         if curl -sf http://localhost:5001/health; then
