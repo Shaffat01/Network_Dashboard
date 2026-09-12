@@ -56,15 +56,13 @@ pipeline {
             steps {
                 echo "🚀 Deploying multi-container setup (Flask + MySQL) on port 5001"
                 sh """
-                    # Docker compose down করে পুরানো কন্টেইনার রিমুভ করা
+                    # DOCKER_IMAGE এনভায়রনমেন্ট সেট করা
                     export DOCKER_IMAGE=${FULL_IMAGE}:${IMAGE_TAG}
-                    docker-compose down || true
                     
-                    # নতুন ইমেজ পুল করা
-                    docker-compose pull
-                    
-                    # ব্যাকগ্রাউন্ডে রান করা
-                    docker-compose up -d --remove-orphans
+                    # docker compose (স্পেস সহ) ব্যবহার করুন
+                    docker compose down || true
+                    docker compose pull
+                    docker compose up -d --remove-orphans
                 """
             }
         }
