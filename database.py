@@ -3,6 +3,7 @@ from mysql.connector import pooling
 from config import Config
 import time
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ class Database:
 
     @classmethod
     def init_pool(cls, pool_size=10):
-        """Initialize connection pool"""
+        """Initialize connection pool and create tables if missing"""
         retries = 10
         for attempt in range(retries):
             try:
@@ -30,6 +31,9 @@ class Database:
                     autocommit=True
                 )
                 logger.info("Database connection pool created successfully")
+                
+                # Auto Initialize Tables
+                cls.init_db_schema()
                 return True
             except Exception as e:
                 logger.warning(
@@ -38,6 +42,37 @@ class Database:
                 time.sleep(5)
         logger.error("Failed to create database connection pool")
         return False
+
+    @classmethod
+    def init_db_schema(cls):
+        """Execute init_db.sql to create missing tables"""
+        sql_file_path = os.path.join(os.path.dirname(__file__), 'init_db.sql')
+        if not os.path.exists(sql_file_path):
+            logger.warning("init_db.sql file not found. Skipping schema auto-creation.")
+            return
+
+        conn = None
+        cursor = None
+        try:
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            with open(sql_file_path, 'r', encoding='utf-8') as f:
+                sql_script = f.read()
+
+            # Execute each SQL statement
+            statements = sql_script.split(';')
+            for statement in statements:
+                stmt = statement.strip()
+                if stmt:
+                    cursor.execute(stmt)
+            logger.info("Database schema auto-initialized successfully!")
+        except Exception as e:
+            logger.error(f"Error auto-creating database schema: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
 
     @classmethod
     def get_connection(cls):
@@ -159,7 +194,6 @@ class Database:
 
     @classmethod
     def save_vlans(cls, device_id, vlans_data):
-        # Clear old data
         cls.execute_query(
             "DELETE FROM vlans WHERE device_id=%s", (device_id,), fetch=False
         )
