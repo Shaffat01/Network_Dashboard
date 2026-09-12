@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # MySQL Database কন্টেইনার
   mysql-db:
     image: mysql:8.0
     container_name: network-mysql
@@ -18,15 +17,8 @@ services:
       - ./init_db.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - network-net
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pRootPass@2024"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
 
-  # Flask Web Application কন্টেইনার
   web-app:
-    # Jenkins dynamic build tag থেকে ইমেজ নিবে, না থাকলে latest নিবে
     image: ${DOCKER_IMAGE:-shaffat01/network-dashboard:latest}
     container_name: network-dashboard-app
     restart: always
@@ -43,10 +35,9 @@ services:
       - SSH_USERNAME=admin
       - SSH_PASSWORD=admin123
     ports:
-      - "5001:5000" # <--- আপনার পছন্দমতো ৫০০১ পোর্টে ম্যাপ করা হয়েছে
+      - "5001:5000"
     depends_on:
-      mysql-db:
-        condition: service_healthy
+      - mysql-db
     networks:
       - network-net
     volumes:
@@ -54,9 +45,7 @@ services:
 
 volumes:
   mysql_data:
-    driver: local
   upload_data:
-    driver: local
 
 networks:
   network-net:
