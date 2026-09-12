@@ -10,11 +10,8 @@ services:
       MYSQL_DATABASE: network_dashboard
       MYSQL_USER: netadmin
       MYSQL_PASSWORD: NetAdmin@2024
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    # 💡 3306 পোর্ট কনফ্লিক্ট এড়াতে ports সেকশন বাদ দেওয়া হয়েছে।
+    # কন্টেইনারগুলো ডকারের ভেতরের ইন্টারনাল নেটওয়ার্কে কানেক্ট থাকবে।
     networks:
       - network-net
 
