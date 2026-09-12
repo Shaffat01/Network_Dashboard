@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ device.node_name }} - Syslog{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-0">
+        <nav class="col-md-2 sidebar bg-dark min-vh-100 pt-3">
+            <div class="px-3 mb-3">
+                <select class="form-select form-select-sm bg-dark text-white border-secondary" 
+                        onchange="location.href='/device/' + this.value + '/syslog'">
+                    {% for d in all_devices %}
+                        <option value="{{ d.id }}" {% if d.id == device.id %}selected{% endif %}>{{ d.node_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <hr class="text-secondary mx-3">
+            <ul class="nav flex-column sidebar-nav">
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_detail', device_id=device.id) }}"><i class="fas fa-tachometer-alt me-2"></i>Overview</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_vlans', device_id=device.id) }}"><i class="fas fa-sitemap me-2"></i>VLANs</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_vlan_ips', device_id=device.id) }}"><i class="fas fa-network-wired me-2"></i>VLAN IPs</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_radius', device_id=device.id) }}"><i class="fas fa-shield-alt me-2"></i>RADIUS</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_log_server', device_id=device.id) }}"><i class="fas fa-file-alt me-2"></i>Log Server</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_snmp_server', device_id=device.id) }}"><i class="fas fa-cog me-2"></i>SNMP</a></li>
+                <li class="nav-item"><a class="nav-link active" href="{{ url_for('device_syslog', device_id=device.id) }}"><i class="fas fa-clipboard-list me-2"></i>Syslog</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_cdp_neighbors', device_id=device.id) }}"><i class="fas fa-project-diagram me-2"></i>CDP</a></li>
+            </ul>
+        </nav>
+
+        <main class="col-md-10 ms-auto px-4 pt-3">
+            <h3><i class="fas fa-clipboard-list me-2"></i>{{ device.node_name }} - Syslog Entries</h3>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    {% if syslog_entries %}
+                    <table id="syslogTable" class="table table-sm table-striped">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Severity</th>
+                                <th>Facility</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in syslog_entries %}
+                            <tr class="{% if entry.severity in ['emergency','alert','critical'] %}table-danger{% elif entry.severity in ['error'] %}table-warning{% endif %}">
+                                <td><small>{{ entry.timestamp }}</small></td>
+                                <td>
+                                    {% set sev_colors = {'emergency':'danger','alert':'danger','critical':'danger','error':'warning','warning':'warning','notification':'info','informational':'secondary','debugging':'light'} %}
+                                    <span class="badge bg-{{ sev_colors.get(entry.severity, 'secondary') }}">{{ entry.severity }}</span>
+                                </td>
+                                <td>{{ entry.facility }}</td>
+                                <td><small>{{ entry.message[:200] }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No syslog entries found.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#syslogTable').DataTable({order:[[0,'desc']], pageLength:50}); });</script>
+{% endblock %}

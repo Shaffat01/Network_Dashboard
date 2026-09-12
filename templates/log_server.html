@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ device.node_name }} - Log Server{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-0">
+        <nav class="col-md-2 sidebar bg-dark min-vh-100 pt-3">
+            <div class="px-3 mb-3">
+                <select class="form-select form-select-sm bg-dark text-white border-secondary" 
+                        onchange="location.href='/device/' + this.value + '/log-server'">
+                    {% for d in all_devices %}
+                        <option value="{{ d.id }}" {% if d.id == device.id %}selected{% endif %}>{{ d.node_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <hr class="text-secondary mx-3">
+            <ul class="nav flex-column sidebar-nav">
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_detail', device_id=device.id) }}"><i class="fas fa-tachometer-alt me-2"></i>Overview</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_vlans', device_id=device.id) }}"><i class="fas fa-sitemap me-2"></i>VLANs</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_vlan_ips', device_id=device.id) }}"><i class="fas fa-network-wired me-2"></i>VLAN IPs</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_radius', device_id=device.id) }}"><i class="fas fa-shield-alt me-2"></i>RADIUS</a></li>
+                <li class="nav-item"><a class="nav-link active" href="{{ url_for('device_log_server', device_id=device.id) }}"><i class="fas fa-file-alt me-2"></i>Log Server</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_snmp_server', device_id=device.id) }}"><i class="fas fa-cog me-2"></i>SNMP</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_syslog', device_id=device.id) }}"><i class="fas fa-clipboard-list me-2"></i>Syslog</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('device_cdp_neighbors', device_id=device.id) }}"><i class="fas fa-project-diagram me-2"></i>CDP</a></li>
+            </ul>
+        </nav>
+
+        <main class="col-md-10 ms-auto px-4 pt-3">
+            <h3><i class="fas fa-file-alt me-2"></i>{{ device.node_name }} - Log Servers</h3>
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    {% if log_servers %}
+                    <table class="table table-striped">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Server IP</th>
+                                <th>Port</th>
+                                <th>Protocol</th>
+                                <th>Severity Level</th>
+                                <th>Facility</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for l in log_servers %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td><code>{{ l.server_ip }}</code></td>
+                                <td>{{ l.port }}</td>
+                                <td>{{ l.protocol | upper }}</td>
+                                <td><span class="badge bg-info">{{ l.severity_level }}</span></td>
+                                <td>{{ l.facility }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="alert alert-warning text-center">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        No Log server configured on this switch.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}
