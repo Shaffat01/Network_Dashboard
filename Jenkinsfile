@@ -95,7 +95,6 @@ pipeline {
         }
         failure {
             echo "❌ Pipeline failed! Fetching logs..."
-            # ফেইল করলে কন্টেইনারের লোগ প্রিন্ট করে দেখাবে সমস্যা কোথায়
             sh 'docker compose logs --tail=50 || true'
         }
     }
