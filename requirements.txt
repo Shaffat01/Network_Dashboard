@@ -1,7 +1,7 @@
 Flask==3.0.0
 flask-mysqldb==2.0.0
 mysql-connector-python==8.2.0
-pysnmp==6.1.2
+pysnmp==6.1.4
 netmiko==4.3.0
 paramiko==3.4.0
 pandas==2.1.4
