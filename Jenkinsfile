@@ -6,8 +6,7 @@ pipeline {
         IMAGE_NAME  = 'network-dashboard'
         IMAGE_TAG   = "${env.BUILD_NUMBER}"
         FULL_IMAGE  = "${DOCKER_USER}/${IMAGE_NAME}"
-        // Ansible deploy target (change if needed)
-        DEPLOY_HOST = '192.168.1.50'   // ← আপনার সার্ভার IP
+        ANSIBLE_DIR = '/home/jenkins/ansible-master'
     }
 
     stages {
@@ -55,49 +54,27 @@ pipeline {
             }
         }
 
-        stage('Deploy with Ansible') {
+        stage('Deploy via Ansible') {
             steps {
-                echo "🚀 Ansible deploying ${FULL_IMAGE}:${IMAGE_TAG} to ${DEPLOY_HOST}"
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-hub-credentials',
-                        usernameVariable: 'DH_USER',
-                        passwordVariable: 'DH_PASS'
-                    ),
-                    sshUserPrivateKey(
-                        credentialsId: 'ansible-ssh-key',   // Jenkins-এ SSH key credential বানান
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
-                    sh """
-                        # Dynamic inventory
-                        cat > /tmp/inventory.ini << EOF
-[dashboard]
-${DEPLOY_HOST} ansible_user=\${SSH_USER} ansible_ssh_private_key_file=\${SSH_KEY} ansible_ssh_common_args='-o StrictHostKeyChecking=no'
-EOF
-
-                        ansible-playbook \
-                          -i /tmp/inventory.ini \
-                          ansible/deploy.yml \
-                          -e "docker_image=${FULL_IMAGE}:${IMAGE_TAG}" \
-                          -e "docker_user=\${DH_USER}" \
-                          -e "docker_pass=\${DH_PASS}" \
-                          -e "app_port=5001"
-                    """
-                }
+                echo "🚀 Running Ansible Deploy from ${ANSIBLE_DIR}"
+                sh """
+                    cd ${ANSIBLE_DIR}
+                    ansible-playbook deploy.yml \
+                      --vault-password-file .vault_pass \
+                      -e "docker_image=${FULL_IMAGE}:${IMAGE_TAG}" \
+                      -e "app_name=${IMAGE_NAME}"
+                """
             }
         }
 
         stage('Health Check') {
             steps {
-                echo "🔍 Checking App Health..."
+                echo "🔍 Checking App Health status..."
                 sh """
-                    for i in {1..15}; do
-                        echo "Attempt \$i: http://${DEPLOY_HOST}:5001/health"
-                        if curl -sf http://${DEPLOY_HOST}:5001/health; then
-                            echo ""
-                            echo "✅ Health check PASSED!"
+                    for i in {1..12}; do
+                        echo "Attempt \$i: Testing http://localhost:5001/health..."
+                        if curl -sf http://localhost:5001/health; then
+                            echo "\n✅ Health check passed!"
                             exit 0
                         fi
                         sleep 5
@@ -113,14 +90,13 @@ EOF
         always {
             sh 'docker logout || true'
             sh 'docker image prune -f || true'
-            cleanWs()
         }
         success {
-            echo "✅ LIVE  → http://${DEPLOY_HOST}:5001"
-            echo "✅ Image → https://hub.docker.com/r/${DOCKER_USER}/${IMAGE_NAME}"
+            echo "✅ Network Dashboard LIVE: http://localhost:5001"
         }
         failure {
-            echo "❌ Pipeline failed!"
+            echo "❌ Deployment Failed! Checking Docker logs..."
+            sh 'docker logs network_dashboard || true'
         }
     }
 }

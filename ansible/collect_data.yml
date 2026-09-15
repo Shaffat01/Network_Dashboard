@@ -1,0 +1,23 @@
+---
+- name: Network Data Collection via Ansible
+  hosts: switches
+  gather_facts: no
+
+  tasks:
+    - name: Fetch VLAN, IP and CDP data from Switch
+      cisco.ios.ios_command:
+        commands:
+          - show vlan
+          - show ip interface brief
+          - show cdp neighbors
+      register: switch_output
+
+    - name: Pass collected output to Python DB Updater
+      delegate_to: localhost
+      command: >
+        python3 {{ playbook_dir }}/update_db.py "{{ ansible_host }}" '{{ switch_output | to_json }}'
+      register: db_status
+
+    - name: Show Update Result
+      debug:
+        msg: "{{ db_status.stdout }}"
