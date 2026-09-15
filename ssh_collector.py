@@ -1,496 +1,590 @@
 import re
+import time
+import socket
 import logging
 from datetime import datetime
-from netmiko import ConnectHandler
+import paramiko
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
 class SSHCollector:
-    """Collect data from switches via SSH using Netmiko"""
+    """Smart SSH Collector: Standard SSH for Catalyst L3/2960 + Transport Bypass for SG300/CBS350"""
 
-    def __init__(self, ip, username=None, password=None,
-                 device_type=None, port=None):
+    def __init__(self, ip, username=None, password=None, port=None):
         self.ip = ip
         self.username = username or Config.SSH_USERNAME
         self.password = password or Config.SSH_PASSWORD
-        self.device_type = device_type or Config.SSH_DEVICE_TYPE
         self.port = port or Config.SSH_PORT
-        self.connection = None
+        self.client = None
+        self.transport = None
+        self.channel = None
+        self.hostname = ""
 
     def connect(self):
-        """Establish SSH connection"""
+        # ========================================================
+        # METHOD 1: Standard SSHClient (For Catalyst L3 & 2960)
+        # ========================================================
         try:
-            self.connection = ConnectHandler(
-                device_type=self.device_type,
-                host=self.ip,
+            logger.info(f"[{self.ip}] Trying Standard SSHClient (Catalyst Mode)...")
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client.connect(
+                self.ip,
+                port=self.port,
                 username=self.username,
                 password=self.password,
-                port=self.port,
-                timeout=30,
-                auth_timeout=30
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=8
             )
-            logger.info(f"SSH connected to {self.ip}")
-            return True
+            self.channel = self.client.invoke_shell()
+            time.sleep(1.5)
+            self.channel.send("\n")
+            time.sleep(1)
+
+            out = ""
+            if self.channel.recv_ready():
+                out = self.channel.recv(4096).decode('utf-8', errors='ignore')
+
+            if "#" in out or ">" in out or "User" in out:
+                logger.info(f"[{self.ip}] ✅ Connected via Standard SSHClient!")
+                m_prompt = re.search(r'([A-Za-z0-9_-]+)[#>]', out)
+                if m_prompt:
+                    self.hostname = m_prompt.group(1).strip()
+
+                self.channel.send("terminal length 0\n")
+                time.sleep(0.5)
+                if self.channel.recv_ready():
+                    self.channel.recv(4096)
+                return True
         except Exception as e:
-            logger.error(f"SSH connection failed to {self.ip}: {e}")
-            return False
+            logger.info(f"[{self.ip}] Standard SSH failed ({e}) -> Trying SG300 Transport Mode...")
+            self._close_all()
+
+        # ========================================================
+        # METHOD 2: Low-Level Transport (For SG300/CBS350 Shell Prompts)
+        # ========================================================
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.ip, self.port))
+
+            self.transport = paramiko.Transport(sock)
+
+            opts = self.transport.get_security_options()
+            opts.key_types = ('ssh-rsa', 'ssh-dss')
+            opts.ciphers = ('aes128-cbc', 'aes192-cbc', 'aes256-cbc', '3des-cbc', 'aes128-ctr', 'aes192-ctr', 'aes256-ctr')
+            opts.kex = ('diffie-hellman-group1-sha1', 'diffie-hellman-group14-sha1', 'diffie-hellman-group-exchange-sha1')
+
+            self.transport.start_client()
+
+            authenticated = False
+            try:
+                self.transport.auth_password(self.username, self.password)
+                authenticated = True
+            except Exception:
+                try:
+                    self.transport.auth_none(self.username)
+                    authenticated = True
+                except Exception:
+                    pass
+
+            if not authenticated:
+                try:
+                    self.transport.auth_none('')
+                    authenticated = True
+                except Exception:
+                    pass
+
+            self.channel = self.transport.open_session()
+            self.channel.get_pty(term='vt100', width=160, height=100)
+            self.channel.invoke_shell()
+
+            time.sleep(2)
+            output = ""
+            if self.channel.recv_ready():
+                output += self.channel.recv(8192).decode('utf-8', errors='ignore')
+
+            if "User Name:" in output or "login" in output.lower() or "User:" in output:
+                self.channel.send(self.username + "\n")
+                time.sleep(1)
+                self.channel.send(self.password + "\n")
+                time.sleep(2)
+
+            self.channel.send("\n")
+            time.sleep(1)
+            if self.channel.recv_ready():
+                output += self.channel.recv(8192).decode('utf-8', errors='ignore')
+
+            m_prompt = re.search(r'([A-Za-z0-9_-]+)[#>]', output)
+            if m_prompt:
+                self.hostname = m_prompt.group(1).strip()
+
+            if "#" in output or ">" in output:
+                logger.info(f"[{self.ip}] ✅ Connected via SG300 Transport Mode!")
+                self.channel.send("terminal datadump\n")
+                time.sleep(0.5)
+                self.channel.send("terminal length 0\n")
+                time.sleep(0.5)
+                if self.channel.recv_ready():
+                    self.channel.recv(8192)
+                return True
+
+        except Exception as e:
+            logger.error(f"[{self.ip}] SSH Transport Exception: {e}")
+
+        self._close_all()
+        return False
+
+    def _close_all(self):
+        if self.channel:
+            try: self.channel.close()
+            except Exception: pass
+            self.channel = None
+        if self.client:
+            try: self.client.close()
+            except Exception: pass
+            self.client = None
+        if self.transport:
+            try: self.transport.close()
+            except Exception: pass
+            self.transport = None
 
     def disconnect(self):
-        """Close SSH connection"""
-        if self.connection:
-            try:
-                self.connection.disconnect()
-            except Exception:
-                pass
+        self._close_all()
 
     def send_command(self, command):
-        """Send command and return output"""
+        """Advanced command sender: Cleans buffer, handles echo, removes ANSI/prompts"""
+        if not self.channel or not self.channel.active:
+            if not self.connect():
+                return ""
         try:
-            if not self.connection:
-                if not self.connect():
-                    return ""
-            output = self.connection.send_command(command, read_timeout=60)
-            return output
+            while self.channel.recv_ready():
+                self.channel.recv(8192)
+
+            self.channel.send(command + "\n")
+
+            output = ""
+            start_time = time.time()
+            idle_count = 0
+
+            while time.time() - start_time < 15:
+                if self.channel.recv_ready():
+                    chunk = self.channel.recv(8192).decode('utf-8', errors='ignore')
+                    output += chunk
+                    idle_count = 0
+
+                    clean_out = output.strip()
+                    if clean_out.endswith('#') or clean_out.endswith('>'):
+                        time.sleep(0.4)
+                        if not self.channel.recv_ready():
+                            break
+                else:
+                    idle_count += 1
+                    time.sleep(0.25)
+                    if idle_count >= 6 and output:
+                        break
+
+            output = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', output)
+            output = output.replace('\r', '')
+
+            lines = output.splitlines()
+            cleaned = []
+            for line in lines:
+                s = line.strip()
+                if s == command or s.startswith(command):
+                    continue
+                if re.match(r'^[A-Za-z0-9_\-.:/]+[#>](\s*)$', s):
+                    continue
+                if not s:
+                    continue
+                cleaned.append(line)
+
+            result = "\n".join(cleaned)
+            logger.info(f"[{self.ip}] CMD '{command}' -> {len(result)} chars")
+            return result
         except Exception as e:
-            logger.error(f"Command failed on {self.ip}: {command} - {e}")
+            logger.error(f"[{self.ip}] Command Error ({command}): {e}")
             return ""
 
-    # ============ VLAN Collection ============
+    def get_hostname(self):
+        return self.hostname
 
     def get_vlans(self):
-        """Get VLAN information - show vlan brief"""
+        """Robust VLAN parsing for both Catalyst and SG300/CBS switches"""
         vlans = []
-        output = self.send_command("show vlan brief")
-        if not output:
-            return vlans
+        seen = set()
 
-        # Parse "show vlan brief" output
-        # Format: VLAN_ID  NAME  STATUS  PORTS
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-            # Match lines starting with a number (VLAN ID)
-            match = re.match(
-                r'^(\d+)\s+(\S+)\s+(active|act/unsup|suspend)\s*(.*)?$',
-                line, re.IGNORECASE
-            )
-            if match:
-                vlan_id = int(match.group(1))
-                vlan_name = match.group(2)
-                status = match.group(3)
-                ports = match.group(4).strip() if match.group(4) else ''
+        for cmd in ("show vlan brief", "show vlan", "show vlan id 1-4094"):
+            output = self.send_command(cmd)
+            if not output or "Invalid" in output or "Ambiguous" in output:
+                continue
 
-                vlans.append({
-                    'vlan_id': vlan_id,
-                    'vlan_name': vlan_name,
-                    'status': status,
-                    'ports': ports,
-                    'collected_via': 'ssh'
-                })
+            for line in output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
 
+                low = line.lower()
+                if any(x in low for x in ('vlan name', '----', 'vlan id', 'ports type', 'authorization', 'created by')):
+                    continue
+                if low.startswith(('capability', 'device id', 'status')):
+                    continue
+
+                m = re.match(r'^(\d+)\s+(\S+)\s+(active|act/lshut|act/unsup|suspend|inactive)?\s*(.*)$', line, re.I)
+                if m:
+                    vid = int(m.group(1))
+                    name = m.group(2)
+                    if name.lower() in ('vlan', 'name', 'id', 'type', '----'): continue
+                    if vid in seen: continue
+                    seen.add(vid)
+
+                    status = (m.group(3) or 'active').lower()
+                    if status.startswith('act'): status = 'active'
+
+                    vlans.append({
+                        'vlan_id': vid,
+                        'vlan_name': name,
+                        'status': status,
+                        'ports': (m.group(4) or '').strip(),
+                        'collected_via': 'ssh'
+                    })
+                    continue
+
+                m2 = re.match(r'^(\d+)\s+(\S+)\s+(\S.*)$', line)
+                if m2:
+                    vid = int(m2.group(1))
+                    name = m2.group(2)
+                    if name.lower() in ('vlan', 'name', 'id', 'type'): continue
+                    if vid in seen: continue
+                    seen.add(vid)
+
+                    vlans.append({
+                        'vlan_id': vid,
+                        'vlan_name': name,
+                        'status': 'active',
+                        'ports': m2.group(3).strip(),
+                        'collected_via': 'ssh'
+                    })
+
+            if vlans:
+                break
+
+        logger.info(f"[{self.ip}] Parsed {len(vlans)} VLANs")
         return vlans
 
-    # ============ VLAN IP Collection ============
-
     def get_vlan_ips(self):
-        """Get IP addresses assigned to VLAN interfaces (SVIs)"""
+        """Robust VLAN IP parsing — Correctly detects Static Valid as UP"""
         vlan_ips = []
-        output = self.send_command("show ip interface brief")
-        if not output:
-            return vlan_ips
+        seen = set()
 
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-            # Match Vlan interfaces with IP
-            match = re.match(
-                r'^(Vlan(\d+))\s+(\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+'
-                r'(\S+)\s+(\S+)',
-                line
-            )
-            if match:
-                interface_name = match.group(1)
-                vlan_id = int(match.group(2))
-                ip_address = match.group(3)
-                status = match.group(4)
+        for cmd in ("show ip interface brief", "show ip interface", "show ip int brief"):
+            output = self.send_command(cmd)
+            if not output or "Invalid" in output:
+                continue
 
-                # Get subnet mask from detailed interface info
-                subnet_mask = self._get_interface_mask(interface_name)
+            for line in output.splitlines():
+                line = line.strip()
+                if not line or 'unassigned' in line.lower():
+                    continue
+                if re.match(r'^(Interface|IP-Address|Vlan\s+IP)', line, re.I):
+                    continue
 
-                vlan_ips.append({
-                    'vlan_id': vlan_id,
-                    'ip_address': ip_address,
-                    'subnet_mask': subnet_mask,
-                    'interface_name': interface_name,
-                    'status': status
-                })
+                # Pattern 1: Classic IOS brief
+                m = re.match(
+                    r'^(?:Vlan|Vl|VLAN)\s*(\d+)\s+'
+                    r'(\d+\.\d+\.\d+\.\d+)\s+'
+                    r'(\S+)\s+'
+                    r'(\S+)\s+'
+                    r'(\S+(?:\s+\S+)?)\s+'
+                    r'(\S+)\s*$',
+                    line, re.I
+                )
+                if m:
+                    vid = int(m.group(1))
+                    ip = m.group(2)
+                    admin_status = m.group(5).strip().lower()
+                    protocol = m.group(6).strip().lower()
 
+                    if 'admin' in admin_status:
+                        status = 'administratively down'
+                    elif admin_status == 'up' and protocol == 'up':
+                        status = 'up'
+                    elif admin_status == 'up' and protocol != 'up':
+                        status = 'up/down'
+                    else:
+                        status = f'{admin_status}/{protocol}'
+
+                    key = (vid, ip)
+                    if key not in seen:
+                        seen.add(key)
+                        vlan_ips.append({
+                            'vlan_id': vid, 'ip_address': ip, 'subnet_mask': '',
+                            'interface_name': f'Vlan{vid}', 'status': status
+                        })
+                    continue
+
+                # Pattern 2: IP with CIDR   Vlan102  192.168.102.6/24
+                m = re.match(r'^(?:Vlan|Vl|VLAN)\s*(\d+)\s+(\d+\.\d+\.\d+\.\d+)(?:/(\d+))?(.*)$', line, re.I)
+                if m:
+                    vid = int(m.group(1))
+                    ip = m.group(2)
+                    mask = m.group(3) or ''
+                    rest = (m.group(4) or '').lower()
+
+                    status = 'up' if any(w in rest for w in ('up', 'static', 'valid', 'active')) else 'down'
+                    key = (vid, ip)
+                    if key not in seen:
+                        seen.add(key)
+                        vlan_ips.append({
+                            'vlan_id': vid, 'ip_address': ip, 'subnet_mask': mask,
+                            'interface_name': f'Vlan{vid}', 'status': status
+                        })
+                    continue
+
+                # Pattern 3: SG300 / CBS style (192.168.102.6/24 vlan 102 Static Valid)
+                m = re.search(r'(\d+\.\d+\.\d+\.\d+)(?:/(\d+))?\s+vlan\s*(\d+)\s+(.*)', line, re.I)
+                if m:
+                    ip = m.group(1)
+                    mask = m.group(2) or ''
+                    vid = int(m.group(3))
+                    raw_st = (m.group(4) or '').lower()
+
+                    # Static Valid or Active -> UP
+                    status = 'up' if any(w in raw_st for w in ('up', 'static', 'valid', 'active', 'dhcp')) else 'down'
+
+                    key = (vid, ip)
+                    if key not in seen:
+                        seen.add(key)
+                        vlan_ips.append({
+                            'vlan_id': vid, 'ip_address': ip, 'subnet_mask': mask,
+                            'interface_name': f'Vlan{vid}', 'status': status
+                        })
+
+            if vlan_ips:
+                break
+
+        logger.info(f"[{self.ip}] Parsed {len(vlan_ips)} VLAN IPs → {vlan_ips}")
         return vlan_ips
 
-    def _get_interface_mask(self, interface):
-        """Get subnet mask for a specific interface"""
-        output = self.send_command(f"show running-config interface {interface}")
-        if output:
-            match = re.search(
-                r'ip address (\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)',
-                output
-            )
-            if match:
-                return match.group(2)
-        return ''
-
-    # ============ RADIUS Collection ============
-
     def get_radius_servers(self):
-        """Get RADIUS server configuration"""
-        radius_servers = []
+        servers = []
         output = self.send_command("show running-config | include radius")
-        if not output:
-            return radius_servers
+        if not output or "Invalid" in output:
+            output = self.send_command("show running-config")
 
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-
-            # Match: radius-server host X.X.X.X auth-port YYYY acct-port ZZZZ key XXXX
-            match = re.match(
-                r'radius.server\s+host\s+(\d+\.\d+\.\d+\.\d+)'
-                r'(?:\s+auth-port\s+(\d+))?'
-                r'(?:\s+acct-port\s+(\d+))?'
-                r'(?:\s+key\s+(.+))?',
-                line
-            )
-            if match:
-                radius_servers.append({
-                    'server_ip': match.group(1),
-                    'auth_port': int(match.group(2)) if match.group(2) else 1812,
-                    'acct_port': int(match.group(3)) if match.group(3) else 1813,
-                    'secret_key': match.group(4) if match.group(4) else '***',
-                    'priority': len(radius_servers),
-                    'timeout': 5,
-                    'retransmit': 3
+        for line in output.splitlines():
+            m = re.search(r'(?:radius-server\s+host|radius\s+server)\s+(\d+\.\d+\.\d+\.\d+)', line, re.I)
+            if m:
+                servers.append({
+                    'server_ip': m.group(1), 'auth_port': 1812, 'acct_port': 1813,
+                    'secret_key': '***', 'priority': 1, 'timeout': 5, 'retransmit': 3
                 })
-                continue
-
-            # Match: radius server NAME / address ipv4 X.X.X.X
-            match2 = re.match(
-                r'address\s+ipv4\s+(\d+\.\d+\.\d+\.\d+)'
-                r'(?:\s+auth-port\s+(\d+))?'
-                r'(?:\s+acct-port\s+(\d+))?',
-                line
-            )
-            if match2:
-                radius_servers.append({
-                    'server_ip': match2.group(1),
-                    'auth_port': int(match2.group(2)) if match2.group(2) else 1812,
-                    'acct_port': int(match2.group(3)) if match2.group(3) else 1813,
-                    'secret_key': '***',
-                    'priority': len(radius_servers),
-                    'timeout': 5,
-                    'retransmit': 3
-                })
-
-        # Also check show aaa servers
-        aaa_output = self.send_command("show aaa servers")
-        # Additional parsing if needed
-
-        return radius_servers
-
-    # ============ Log Server Collection ============
+        return servers
 
     def get_log_servers(self):
-        """Get logging/syslog server configuration"""
-        log_servers = []
-        output = self.send_command("show running-config | include logging")
-        if not output:
-            return log_servers
+        servers = []
+        output = self.send_command("show logging")
+        if output:
+            for line in output.splitlines():
+                line = line.strip()
+                m_syslog = re.search(r'SysLog\s+server\s+(\d+\.\d+\.\d+\.\d+)(?:\s+Port:\s*(\d+))?', line, re.I)
+                if m_syslog:
+                    servers.append({
+                        'server_ip': m_syslog.group(1),
+                        'port': int(m_syslog.group(2)) if m_syslog.group(2) else 514,
+                        'protocol': 'udp', 'severity_level': 'informational', 'facility': ''
+                    })
+                    continue
 
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-            # Match: logging host X.X.X.X
-            # Or: logging X.X.X.X
-            match = re.match(
-                r'logging\s+(?:host\s+)?(\d+\.\d+\.\d+\.\d+)'
-                r'(?:\s+transport\s+(\S+))?'
-                r'(?:\s+port\s+(\d+))?',
-                line
-            )
-            if match:
-                log_servers.append({
-                    'server_ip': match.group(1),
-                    'protocol': match.group(2) if match.group(2) else 'udp',
-                    'port': int(match.group(3)) if match.group(3) else 514,
-                    'severity_level': 'informational',
-                    'facility': ''
-                })
-
-            # Check logging trap level
-            trap_match = re.match(r'logging\s+trap\s+(\S+)', line)
-            if trap_match and log_servers:
-                log_servers[-1]['severity_level'] = trap_match.group(1)
-
-        return log_servers
-
-    # ============ SNMP Server Collection ============
+                m_host = re.search(r'logging\s+(?:host\s+)?(\d+\.\d+\.\d+\.\d+)', line, re.I)
+                if m_host:
+                    servers.append({
+                        'server_ip': m_host.group(1), 'port': 514, 'protocol': 'udp',
+                        'severity_level': 'informational', 'facility': ''
+                    })
+        return servers
 
     def get_snmp_config(self):
-        """Get SNMP configuration"""
-        snmp_configs = []
-        output = self.send_command("show running-config | include snmp")
-        if not output:
-            return snmp_configs
+        output = self.send_command("show snmp")
+        community_str = Config.SNMP_COMMUNITY
+        trap_dest = "Not configured"
+        trap_port = 162
+        snmp_ver = "2c"
 
-        config = {
-            'server_ip': '',
-            'community_string': '',
-            'snmp_version': '2c',
-            'trap_destination': '',
-            'trap_port': 162,
-            'contact_info': '',
-            'location_info': '',
-            'engine_id': ''
-        }
+        if output:
+            m_trap = re.search(r'(\d+\.\d+\.\d+\.\d+)\s+(?:Trap|Inform)?\s+(\S+)\s+(\d+)\s+(\d+)', output, re.I)
+            if m_trap:
+                trap_dest = m_trap.group(1)
+                community_str = m_trap.group(2)
+                ver_num = m_trap.group(3)
+                snmp_ver = f"{ver_num}c" if ver_num in ['1', '2'] else ver_num
+                trap_port = int(m_trap.group(4))
 
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-
-            # Community string
-            comm_match = re.match(
-                r'snmp-server\s+community\s+(\S+)\s*(\S*)', line
-            )
-            if comm_match:
-                config['community_string'] = comm_match.group(1)
-
-            # Trap host
-            trap_match = re.match(
-                r'snmp-server\s+host\s+(\d+\.\d+\.\d+\.\d+)'
-                r'(?:\s+version\s+(\S+))?\s*(\S*)',
-                line
-            )
-            if trap_match:
-                config['trap_destination'] = trap_match.group(1)
-                config['server_ip'] = trap_match.group(1)
-                if trap_match.group(2):
-                    config['snmp_version'] = trap_match.group(2)
-
-            # Contact
-            contact_match = re.match(
-                r'snmp-server\s+contact\s+(.+)', line
-            )
-            if contact_match:
-                config['contact_info'] = contact_match.group(1)
-
-            # Location
-            loc_match = re.match(
-                r'snmp-server\s+location\s+(.+)', line
-            )
-            if loc_match:
-                config['location_info'] = loc_match.group(1)
-
-            # Engine ID
-            eng_match = re.match(
-                r'snmp-server\s+engineID\s+\S+\s+(\S+)', line
-            )
-            if eng_match:
-                config['engine_id'] = eng_match.group(1)
-
-        if config['community_string'] or config['trap_destination']:
-            snmp_configs.append(config)
-
-        return snmp_configs
-
-    # ============ Syslog Collection ============
+        return [{
+            'server_ip': trap_dest if trap_dest != "Not configured" else "",
+            'community_string': community_str,
+            'snmp_version': snmp_ver,
+            'trap_destination': trap_dest,
+            'trap_port': trap_port,
+            'contact_info': 'N/A', 'location_info': 'N/A', 'engine_id': 'N/A'
+        }]
 
     def get_syslog(self):
-        """Get recent syslog/log buffer entries"""
-        syslog_entries = []
-        output = self.send_command("show logging | tail 100")
-        if not output:
-            output = self.send_command("show logging")
-        if not output:
-            return syslog_entries
-
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('Log') or line.startswith('---'):
-                continue
-
-            # Parse syslog format:
-            # *Mar  1 00:00:00.000: %FACILITY-SEVERITY-MNEMONIC: message
-            match = re.match(
-                r'^\*?(\w+\s+\d+\s+[\d:\.]+):\s+%(\w+)-(\d)-(\w+):\s*(.+)$',
-                line
-            )
-            if match:
-                timestamp_str = match.group(1)
-                facility = match.group(2)
-                severity_num = int(match.group(3))
-                severity_map = {
-                    0: 'emergency', 1: 'alert', 2: 'critical',
-                    3: 'error', 4: 'warning', 5: 'notification',
-                    6: 'informational', 7: 'debugging'
-                }
-                severity = severity_map.get(severity_num, 'info')
-                message = match.group(5)
-
-                syslog_entries.append({
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'severity': severity,
-                    'facility': facility,
-                    'message': message,
-                    'raw_log': line
-                })
-            elif len(line) > 10:
-                # Generic log entry
-                syslog_entries.append({
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'severity': 'info',
-                    'facility': '',
-                    'message': line,
-                    'raw_log': line
-                })
-
-        return syslog_entries[-100:]  # Limit to last 100
-
-    # ============ CDP Neighbor Collection ============
+        entries = []
+        output = self.send_command("show logging")
+        if output:
+            for line in output.splitlines():
+                line = line.strip()
+                m_log = re.search(r'(\d{2}-\w+-\d{4}\s+\d{2}:\d{2}:\d{2})\s*:(.+)', line)
+                if m_log:
+                    entries.append({
+                        'timestamp': m_log.group(1), 'severity': 'info', 'facility': '',
+                        'message': m_log.group(2).strip()[:300], 'raw_log': line[:300]
+                    })
+        return entries[-50:]
 
     def get_cdp_neighbors(self):
-        """Get CDP neighbor details"""
+        """Universal & Fail-proof CDP Neighbor parser: Handles multiline wraps & custom columns"""
         neighbors = []
-        output = self.send_command("show cdp neighbors detail")
-        if not output:
+        seen = set()
+
+        output = self.send_command("show cdp neighbors")
+        if not output or "Invalid" in output:
             return neighbors
 
-        # Split by device entry delimiter
-        entries = re.split(r'-{10,}', output)
+        lines = output.splitlines()
 
-        for entry in entries:
-            if not entry.strip():
+        # Local Interface matcher (Matches gi1, gi7, gi10, gi22, Gi1/0/1, Fa0/1, Eth1, Po1)
+        intf_re = re.compile(
+            r'\b(gi\d+(?:/\d+)*(?:/\d+)?|fa\d+(?:/\d+)*(?:/\d+)?|eth\d+(?:/\d+)*(?:/\d+)?|po\d+|ge\d+(?:/\d+)*)\b',
+            re.I
+        )
+
+        # 1. Clean and filter out header lines
+        data_lines = []
+        for line in lines:
+            s = line.strip()
+            if not s:
                 continue
+            if any(h in s.lower() for h in ('capability codes:', 'trans bridge', 'device id', 'local interface', '-------', 'total cdp')):
+                continue
+            if s.startswith('#') or s.startswith('>') or s.endswith('#') or s.endswith('>'):
+                continue
+            data_lines.append(line)
 
-            neighbor = {
-                'local_interface': '',
-                'neighbor_name': '',
-                'neighbor_ip': '',
-                'neighbor_platform': '',
-                'neighbor_interface': '',
-                'capability': '',
-                'software_version': ''
-            }
+        # 2. Extract records using local interface as anchor
+        records = []
+        for idx, line in enumerate(data_lines):
+            m = intf_re.search(line)
+            if m:
+                local_intf = m.group(1)
+                before_intf = line[:m.start()].strip()
 
-            # Device ID
-            match = re.search(r'Device ID:\s*(\S+)', entry)
-            if match:
-                neighbor['neighbor_name'] = match.group(1)
+                # Get Device ID
+                dev_id = before_intf
+                if not dev_id and idx > 0:
+                    prev_line = data_lines[idx - 1].strip()
+                    if not intf_re.search(prev_line):
+                        dev_id = prev_line
 
-            # IP Address
-            match = re.search(
-                r'(?:IP|IPv4)\s+[Aa]ddress:\s*(\d+\.\d+\.\d+\.\d+)', entry
-            )
-            if match:
-                neighbor['neighbor_ip'] = match.group(1)
+                # Handle wrapped/broken Device ID on the next line (e.g. waltonbd.com or orphan '7')
+                next_line = data_lines[idx + 1].strip() if idx + 1 < len(data_lines) else ""
+                if next_line and not intf_re.search(next_line):
+                    next_parts = next_line.split()
+                    if next_parts:
+                        first_word = next_parts[0]
+                        if dev_id.endswith('.') or first_word.startswith('.'):
+                            dev_id = f"{dev_id}{first_word}"
+                        elif len(first_word) <= 3 and first_word.isalnum() and not any(k in first_word.lower() for k in ('cisco', 'mikrotik', 'wan', 'eth')):
+                            dev_id = f"{dev_id}{first_word}"
+                        elif '.' in first_word and not any(k in first_word.lower() for k in ('cisco', 'mikrotik', 'c9300', 'w600', 't21p', 'gigabit', 'ethernet')):
+                            dev_id = f"{dev_id}.{first_word}"
+
+                records.append({
+                    'dev_id': dev_id or "Discovered-Device",
+                    'local_intf': local_intf,
+                    'line': line,
+                    'next_line': next_line
+                })
+
+        # 3. Format and classify device details
+        for r in records:
+            dev_id = r['dev_id'].strip('.')
+            local_intf = r['local_intf']
+            combined_text = (r['line'] + " " + r['next_line']).lower()
+
+            # Capabilities
+            cap = "Switch"
+            if "mikrotik" in combined_text or " r " in combined_text or "router" in combined_text:
+                cap = "Router"
+            elif " h " in combined_text or " p " in combined_text or "w600" in combined_text or "t21p" in combined_text or "phone" in combined_text:
+                cap = "Host/Phone"
 
             # Platform
-            match = re.search(r'Platform:\s*(.+?)(?:,|\n)', entry)
-            if match:
-                neighbor['neighbor_platform'] = match.group(1).strip()
+            platform = "Cisco Device"
+            if "mikrotik" in combined_text:
+                platform = "MikroTik Router"
+            elif "c9300" in combined_text:
+                platform = "Cisco C9300"
+            elif "w600" in combined_text:
+                platform = "W600 Phone"
+            elif "t21p" in combined_text:
+                platform = "T21P Phone"
 
-            # Local Interface
-            match = re.search(
-                r'Interface:\s*(\S+)\s*,\s*Port ID.*?:\s*(\S+)', entry
-            )
-            if match:
-                neighbor['local_interface'] = match.group(1)
-                neighbor['neighbor_interface'] = match.group(2)
+            # Remote Port ID
+            words = (r['line'] + " " + r['next_line']).split()
+            remote_port = words[-1] if words else "N/A"
+            if len(words) >= 2 and words[-2].lower().startswith(('gigabit', 'fast', 'ether', 'wan')):
+                remote_port = words[-2] + words[-1]
 
-            # Capability
-            match = re.search(r'Capabilities:\s*(.+)', entry)
-            if match:
-                neighbor['capability'] = match.group(1).strip()
+            key = (local_intf, dev_id)
+            if key not in seen:
+                seen.add(key)
+                neighbors.append({
+                    'local_interface': local_intf,
+                    'neighbor_name': dev_id,
+                    'neighbor_ip': 'N/A',
+                    'neighbor_platform': platform,
+                    'neighbor_interface': remote_port,
+                    'capability': cap,
+                    'software_version': ''
+                })
 
-            # Version
-            match = re.search(
-                r'Version\s*:\s*\n(.+?)(?:\n\n|\nAdvertisement)',
-                entry, re.DOTALL
-            )
-            if match:
-                neighbor['software_version'] = match.group(1).strip()[:500]
-
-            if neighbor['neighbor_name']:
-                neighbors.append(neighbor)
-
+        logger.info(f"[{self.ip}] Parsed {len(neighbors)} CDP neighbors")
         return neighbors
 
-    # ============ Full Collection ============
-
     def collect_all(self):
-        """Collect all data from a device"""
         results = {
-            'success': False,
-            'vlans': [],
-            'vlan_ips': [],
-            'radius_servers': [],
-            'log_servers': [],
-            'snmp_config': [],
-            'syslog': [],
-            'cdp_neighbors': [],
-            'errors': []
+            'success': False, 'hostname': '', 'vlans': [], 'vlan_ips': [],
+            'radius_servers': [], 'log_servers': [], 'snmp_config': [],
+            'syslog': [], 'cdp_neighbors': [], 'errors': []
         }
-
         if not self.connect():
             results['errors'].append(f"Cannot connect to {self.ip} via SSH")
             return results
 
         try:
-            # Collect VLANs
-            try:
-                results['vlans'] = self.get_vlans()
-            except Exception as e:
-                results['errors'].append(f"VLAN collection error: {e}")
-
-            # Collect VLAN IPs
-            try:
-                results['vlan_ips'] = self.get_vlan_ips()
-            except Exception as e:
-                results['errors'].append(f"VLAN IP collection error: {e}")
-
-            # Collect RADIUS
-            try:
-                results['radius_servers'] = self.get_radius_servers()
-            except Exception as e:
-                results['errors'].append(f"RADIUS collection error: {e}")
-
-            # Collect Log Servers
-            try:
-                results['log_servers'] = self.get_log_servers()
-            except Exception as e:
-                results['errors'].append(f"Log server collection error: {e}")
-
-            # Collect SNMP Config
-            try:
-                results['snmp_config'] = self.get_snmp_config()
-            except Exception as e:
-                results['errors'].append(f"SNMP config collection error: {e}")
-
-            # Collect Syslog
-            try:
-                results['syslog'] = self.get_syslog()
-            except Exception as e:
-                results['errors'].append(f"Syslog collection error: {e}")
-
-            # Collect CDP Neighbors
-            try:
-                results['cdp_neighbors'] = self.get_cdp_neighbors()
-            except Exception as e:
-                results['errors'].append(f"CDP collection error: {e}")
-
+            results['hostname'] = self.get_hostname()
+            results['vlans'] = self.get_vlans()
+            results['vlan_ips'] = self.get_vlan_ips()
+            results['radius_servers'] = self.get_radius_servers()
+            results['log_servers'] = self.get_log_servers()
+            results['snmp_config'] = self.get_snmp_config()
+            results['syslog'] = self.get_syslog()
+            results['cdp_neighbors'] = self.get_cdp_neighbors()
             results['success'] = True
-
+            logger.info(
+                f"[{self.ip}] SSH collect_all SUCCESS → "
+                f"VLANs={len(results['vlans'])}, "
+                f"IPs={len(results['vlan_ips'])}, "
+                f"CDP={len(results['cdp_neighbors'])}"
+            )
+        except Exception as e:
+            logger.error(f"[{self.ip}] collect_all error: {e}")
+            results['errors'].append(str(e))
         finally:
             self.disconnect()
 

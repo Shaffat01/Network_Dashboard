@@ -1,45 +1,44 @@
 {% extends "base.html" %}
-{% block title %}Upload CSV{% endblock %}
+{% block title %}Upload CSV - Network Dashboard{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container mt-5">
     <div class="row justify-content-center">
-        <div class="col-md-8">
-            <div class="card shadow">
-                <div class="card-header bg-dark text-white">
-                    <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Upload Device CSV</h5>
+        <div class="col-md-8 col-lg-6">
+            <div class="card animate-fade-in shadow-lg" style="border:1px solid rgba(99, 102, 241, 0.3) !important;">
+                <div class="card-header text-center py-4" style="background:var(--gradient-1); border-radius:15px 15px 0 0 !important;">
+                    <i class="fas fa-cloud-upload-alt fa-3x text-white mb-2"></i>
+                    <h4 class="mb-0 text-white fw-bold">Import Device Inventory</h4>
                 </div>
-                <div class="card-body">
+                <div class="card-body p-5">
                     <form method="POST" enctype="multipart/form-data">
                         <div class="mb-4">
-                            <label for="csv_file" class="form-label">Select CSV File</label>
-                            <input type="file" class="form-control" id="csv_file" name="csv_file" 
-                                   accept=".csv" required>
-                            <div class="form-text">
-                                CSV must have columns: <code>node_name, ip_address, device_type</code>
-                            </div>
+                            <label for="csv_file" class="form-label text-muted fw-bold">Select CSV File</label>
+                            <input type="file" class="form-control form-control-lg" id="csv_file" name="csv_file" accept=".csv" required style="cursor: pointer;">
                         </div>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-upload me-1"></i>Upload & Import
+                        
+                        <button type="submit" class="btn btn-primary w-100 btn-lg mb-4">
+                            <i class="fas fa-upload me-2"></i>Upload & Process
                         </button>
                     </form>
 
-                    <hr>
-                    <h6>CSV Format Example:</h6>
-                    <div class="bg-light p-3 rounded">
-                        <pre class="mb-0">node_name,ip_address,device_type,snmp_community,ssh_username,ssh_password
-ACCESS-SW-01,192.168.1.10,access_switch,public,admin,admin123
-DIST-SW-01,192.168.1.1,distribution_switch,public,admin,admin123</pre>
-                    </div>
+                    <hr class="border-secondary mb-4">
                     
-                    <div class="mt-3">
-                        <p class="mb-1"><strong>device_type values:</strong></p>
-                        <ul class="small">
-                            <li><code>access_switch</code> or <code>access</code></li>
-                            <li><code>distribution_switch</code> or <code>distribution</code></li>
-                        </ul>
+                    <h6 class="fw-bold mb-3"><i class="fas fa-info-circle me-2 text-info"></i>CSV Format Requirements:</h6>
+                    <p class="text-muted small mb-2">The system will use default SSH/SNMP credentials configured in the system. You only need to provide node names and IPs.</p>
+                    
+                    <div class="p-3 rounded-3" style="background:rgba(0,0,0,0.3); border:1px dashed var(--border);">
+                        <code class="d-block text-warning mb-2">node_name,ip_address,device_type</code>
+                        <code class="d-block text-white">WHIL-MB-F1-ACC-SW1,192.168.101.253,access_switch</code>
+                        <code class="d-block text-white">WHIL-MB-F1-DIST-SW1,192.168.101.1,distribution_switch</code>
                     </div>
                 </div>
+            </div>
+            
+            <div class="text-center mt-4 animate-fade-in-delay-1">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                </a>
             </div>
         </div>
     </div>

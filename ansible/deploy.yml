@@ -1,0 +1,109 @@
+---
+- name: Deploy Network Dashboard from Docker Hub
+  hosts: dashboard
+  become: yes
+  gather_facts: yes
+
+  vars:
+    app_dir: /opt/network-dashboard
+    docker_image: "{{ docker_image | default('shaffat01/network-dashboard:latest') }}"
+    app_port: "{{ app_port | default(5001) }}"
+
+  tasks:
+    - name: Ensure Docker is installed
+      apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+          - curl
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Login to Docker Hub
+      docker_login:
+        username: "{{ docker_user }}"
+        password: "{{ docker_pass }}"
+      no_log: true
+      when: docker_user is defined and docker_pass is defined
+
+    - name: Pull latest image
+      docker_image:
+        name: "{{ docker_image }}"
+        source: pull
+        force_source: yes
+
+    - name: Copy docker-compose.yml
+      copy:
+        src: "{{ playbook_dir }}/../docker-compose.yml"
+        dest: "{{ app_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Copy .env if exists (optional)
+      copy:
+        src: "{{ playbook_dir }}/../.env"
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+      ignore_errors: yes
+
+    - name: Create .env defaults if missing
+      copy:
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+        content: |
+          DOCKER_IMAGE={{ docker_image }}
+          APP_PORT={{ app_port }}
+          SSH_USERNAME=admin
+          SSH_PASSWORD=admin123
+          SNMP_COMMUNITY=public
+          SECRET_KEY=change-me-in-production-{{ ansible_date_time.epoch }}
+      when: not (ansible_stat is defined)
+
+    - name: Stop old containers
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        state: absent
+        remove_volumes: false
+      ignore_errors: yes
+
+    - name: Start containers with new image
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        state: present
+        pull: always
+      environment:
+        DOCKER_IMAGE: "{{ docker_image }}"
+        APP_PORT: "{{ app_port }}"
+
+    - name: Wait for health endpoint
+      uri:
+        url: "http://127.0.0.1:{{ app_port }}/health"
+        status_code: 200
+      register: health
+      retries: 12
+      delay: 5
+      until: health.status == 200
+
+    - name: Show running containers
+      command: docker ps --filter name=network-dashboard
+      register: ps_out
+      changed_when: false
+
+    - name: Print status
+      debug:
+        msg:
+          - "✅ Deployed {{ docker_image }}"
+          - "✅ URL: http://{{ inventory_hostname }}:{{ app_port }}"
+          - "{{ ps_out.stdout_lines }}"

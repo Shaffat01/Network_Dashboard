@@ -1,0 +1,32 @@
+DEB [20260916-00:13:03.483] thr=1   paramiko.transport: starting thread (client mode): 0xdd688830
+DEB [20260916-00:13:03.483] thr=1   paramiko.transport: Local version/idstring: SSH-2.0-paramiko_2.12.0
+DEB [20260916-00:13:03.570] thr=1   paramiko.transport: Remote version/idstring: SSH-2.0-OpenSSH_7.3p1.RL
+INF [20260916-00:13:03.571] thr=1   paramiko.transport: Connected (version 2.0, client OpenSSH_7.3p1.RL)
+DEB [20260916-00:13:03.859] thr=1   paramiko.transport: === Key exchange possibilities ===
+DEB [20260916-00:13:03.859] thr=1   paramiko.transport: kex algos: diffie-hellman-group-exchange-sha1, diffie-hellman-group1-sha1, diffie-hellman-group14-sha1
+DEB [20260916-00:13:03.859] thr=1   paramiko.transport: server key: ssh-rsa, ssh-dss
+DEB [20260916-00:13:03.860] thr=1   paramiko.transport: client encrypt: aes128-ctr, aes192-ctr, aes256-ctr, chacha20-poly1305@openssh.com
+DEB [20260916-00:13:03.860] thr=1   paramiko.transport: server encrypt: aes128-ctr, aes192-ctr, aes256-ctr, chacha20-poly1305@openssh.com
+DEB [20260916-00:13:03.860] thr=1   paramiko.transport: client mac: hmac-sha1
+DEB [20260916-00:13:03.860] thr=1   paramiko.transport: server mac: hmac-sha1
+DEB [20260916-00:13:03.860] thr=1   paramiko.transport: client compress: none
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: server compress: none
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: client lang: <none>
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: server lang: <none>
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: kex follows: False
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: === Key exchange agreements ===
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: Kex: diffie-hellman-group-exchange-sha1
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: HostKey: ssh-rsa
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: Cipher: aes128-ctr
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: MAC: hmac-sha1
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: Compression: none
+DEB [20260916-00:13:03.861] thr=1   paramiko.transport: === End of kex handshake ===
+DEB [20260916-00:13:03.874] thr=1   paramiko.transport: Got server p (1024 bits)
+DEB [20260916-00:13:04.096] thr=1   paramiko.transport: kex engine KexGex specified hash_algo <built-in function openssl_sha1>
+DEB [20260916-00:13:04.099] thr=1   paramiko.transport: Switch to new keys ...
+DEB [20260916-00:13:04.099] thr=1   paramiko.transport: Got EXT_INFO: {'server-sig-algs': b'rsa-sha2-256,rsa-sha2-512'}
+DEB [20260916-00:13:04.100] thr=2   paramiko.transport: Adding ssh-rsa host key for 192.168.101.248: b'82037ba9f9eb9e7d3169aeeb8be3e781'
+DEB [20260916-00:13:04.105] thr=1   paramiko.transport: userauth is OK
+DEB [20260916-00:13:04.123] thr=1   paramiko.transport: Authentication type (password) not permitted.
+DEB [20260916-00:13:04.124] thr=1   paramiko.transport: Allowed methods: ['']
+DEB [20260916-00:13:04.124] thr=1   paramiko.transport: EOF in transport thread

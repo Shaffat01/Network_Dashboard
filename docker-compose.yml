@@ -1,49 +1,40 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  mysql-db:
-    image: mysql:8.0
-    container_name: network-mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: RootPass@2024
-      MYSQL_DATABASE: network_dashboard
-      MYSQL_USER: netadmin
-      MYSQL_PASSWORD: NetAdmin@2024
-    # 💡 3306 পোর্ট কনফ্লিক্ট এড়াতে ports সেকশন বাদ দেওয়া হয়েছে।
-    # কন্টেইনারগুলো ডকারের ভেতরের ইন্টারনাল নেটওয়ার্কে কানেক্ট থাকবে।
-    networks:
-      - network-net
-
-  web-app:
+  network-dashboard:
     image: ${DOCKER_IMAGE:-shaffat01/network-dashboard:latest}
-    container_name: network-dashboard-app
-    restart: always
-    environment:
-      - FLASK_APP=app.py
-      - FLASK_DEBUG=false
-      - SECRET_KEY=network-dashboard-secret-key-2024
-      - MYSQL_HOST=mysql-db
-      - MYSQL_PORT=3306
-      - MYSQL_USER=netadmin
-      - MYSQL_PASSWORD=NetAdmin@2024
-      - MYSQL_DB=network_dashboard
-      - SNMP_COMMUNITY=public
-      - SSH_USERNAME=admin
-      - SSH_PASSWORD=admin123
+    container_name: network-dashboard
+    restart: unless-stopped
     ports:
-      - "5001:5000"
-    depends_on:
-      - mysql-db
-    networks:
-      - network-net
+      - "${APP_PORT:-5001}:5000"
+    environment:
+      - FLASK_ENV=production
+      - TZ=Asia/Dhaka
+      # SQLite path inside container
+      - DB_PATH=/app/data/network_dashboard.db
+      # Optional overrides (from .env)
+      - SSH_USERNAME=${SSH_USERNAME:-admin}
+      - SSH_PASSWORD=${SSH_PASSWORD:-admin123}
+      - SNMP_COMMUNITY=${SNMP_COMMUNITY:-public}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
     volumes:
-      - upload_data:/tmp/uploads
+      # Persistent SQLite DB
+      - dashboard_data:/app/data
+      # CSV uploads
+      - dashboard_uploads:/app/uploads
+    networks:
+      - dashboard_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
-  mysql_data:
-  upload_data:
+  dashboard_data:
+  dashboard_uploads:
 
 networks:
-  network-net:
+  dashboard_net:
     driver: bridge

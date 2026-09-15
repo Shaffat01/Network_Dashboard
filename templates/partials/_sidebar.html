@@ -1,0 +1,68 @@
+<nav class="col-md-2 sidebar min-vh-100">
+    <div class="px-3 mb-3">
+        <label class="text-muted small mb-1">SWITCH SELECTOR</label>
+        <select class="form-select form-select-sm" onchange="location.href='/device/' + this.value + '{{ path_suffix|default('') }}'">
+            {% for d in all_devices %}
+                <option value="{{ d.id }}" {% if d.id == device.id %}selected{% endif %}>{{ d.node_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <hr class="text-secondary mx-3">
+    <ul class="nav flex-column sidebar-nav">
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'overview' %}active{% endif %}" href="{{ url_for('device_detail', device_id=device.id) }}">
+                <i class="fas fa-tachometer-alt"></i>Overview
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'vlans' %}active{% endif %}" href="{{ url_for('device_vlans', device_id=device.id) }}">
+                <i class="fas fa-sitemap"></i>VLANs
+                <span class="badge">{{ summary.total_vlans if summary else 0 }}</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'vlan_ips' %}active{% endif %}" href="{{ url_for('device_vlan_ips', device_id=device.id) }}">
+                <i class="fas fa-network-wired"></i>VLAN IPs
+                <span class="badge">{{ summary.total_vlan_ips if summary else 0 }}</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'radius' %}active{% endif %}" href="{{ url_for('device_radius', device_id=device.id) }}">
+                <i class="fas fa-shield-alt"></i>RADIUS
+                <span class="badge">{{ summary.total_radius_servers if summary else 0 }}</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'log_server' %}active{% endif %}" href="{{ url_for('device_log_server', device_id=device.id) }}">
+                <i class="fas fa-file-alt"></i>Log Server
+                <span class="badge">{{ summary.total_log_servers if summary else 0 }}</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'snmp_server' %}active{% endif %}" href="{{ url_for('device_snmp_server', device_id=device.id) }}">
+                <i class="fas fa-cog"></i>SNMP Config
+                <span class="badge">{{ summary.total_snmp_configs if summary else 0 }}</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'syslog' %}active{% endif %}" href="{{ url_for('device_syslog', device_id=device.id) }}">
+                <i class="fas fa-clipboard-list"></i>Syslog
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if active_section == 'cdp_neighbors' %}active{% endif %}" href="{{ url_for('device_cdp_neighbors', device_id=device.id) }}">
+                <i class="fas fa-project-diagram"></i>CDP Neighbors
+                <span class="badge">{{ summary.total_cdp_neighbors if summary else 0 }}</span>
+            </a>
+        </li>
+    </ul>
+    <hr class="text-secondary mx-3">
+    <div class="px-3 d-grid gap-2">
+        <button class="btn btn-primary btn-sm" onclick="scanDevice({{ device.id }})">
+            <i class="fas fa-sync me-1"></i>Scan Now
+        </button>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back
+        </a>
+    </div>
+</nav>

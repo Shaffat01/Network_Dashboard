@@ -1,37 +1,45 @@
-# Debian Bookworm বেস ইমেজ ব্যবহার করা হচ্ছে (Stable)
+# Debian Bookworm base
 FROM python:3.11-slim-bookworm
 
-# debconf এর Interactive Warning বন্ধ করতে DEBIAN_FRONTEND সেট করা হয়েছে
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FLASK_APP=app.py
+    FLASK_APP=app.py \
+    FLASK_ENV=production
 
 WORKDIR /app
 
-# সিস্টেম ডিপেন্ডেন্সি ইনস্টল (curl সহ অন্যান্য প্রয়োজনীয় প্যাকেজ)
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     build-essential \
-    default-libmysqlclient-dev \
     pkg-config \
+    libffi-dev \
     iputils-ping \
     net-tools \
     curl \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Python Packages install
+# Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Application code copy
+# App code
 COPY . .
 
-# Upload Directory তৈরি
-RUN mkdir -p /tmp/uploads
+# Directories
+RUN mkdir -p /app/uploads /app/data /tmp/uploads && \
+    chmod -R 755 /app
+
+# Non-root user (optional security)
+# RUN useradd -m appuser && chown -R appuser:appuser /app
+# USER appuser
 
 EXPOSE 5000
 
-# Gunicorn দিয়ে অ্যাপ রান করা
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "app:app"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "app:app"]

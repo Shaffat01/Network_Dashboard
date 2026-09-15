@@ -1,0 +1,20 @@
+---
+- name: Collect Switch Data via Ansible
+  hosts: switches
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+    - name: Run Show Commands
+      cisco.ios.ios_command:
+        commands:
+          - show vlan
+          - show ip interface brief
+          - show cdp neighbors
+      register: cli_output
+
+    - name: Save output as JSON
+      local_action:
+        module: copy
+        content: "{{ cli_output | to_json }}"
+        dest: "/tmp/{{ inventory_hostname }}_output.json"

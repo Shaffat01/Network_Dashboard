@@ -1,92 +1,89 @@
-// ===== Scan Device =====
+// ===== Custom Toast =====
+function showToast(message, type = 'info', duration = 4000) {
+    const colors = {
+        success: '#10b981',
+        danger: '#ef4444',
+        warning: '#f59e0b',
+        info: '#06b6d4'
+    };
+    const icons = {
+        success: 'check-circle',
+        danger: 'times-circle',
+        warning: 'exclamation-triangle',
+        info: 'info-circle'
+    };
+    
+    const toast = document.createElement('div');
+    toast.className = 'custom-toast';
+    toast.style.borderLeftColor = colors[type] || colors.info;
+    toast.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="fas fa-${icons[type]} me-2" style="color:${colors[type]};font-size:1.2rem;"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.getElementById('toastContainer').appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(50px)';
+        setTimeout(() => toast.remove(), 400);
+    }, duration);
+}
+
+// ===== Scan Single Device =====
 function scanDevice(deviceId) {
-    if (!confirm('Start scanning this device?')) return;
+    if (!confirm('🚀 Start scanning this device?')) return;
+    
+    showToast('Initiating device scan...', 'info');
     
     fetch(`/api/scan/device/${deviceId}`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'}
+        headers: { 'Content-Type': 'application/json' }
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
-        showToast('Scan started! Data will be updated shortly.', 'success');
-        // Refresh after delay
+        showToast('✅ Scan started successfully!', 'success');
         setTimeout(() => location.reload(), 5000);
     })
-    .catch(error => {
-        showToast('Error starting scan: ' + error, 'danger');
-    });
+    .catch(err => showToast('❌ Error: ' + err, 'danger'));
 }
 
 // ===== Scan All Devices =====
 function scanAllDevices() {
-    if (!confirm('Scan ALL devices? This may take several minutes.')) return;
+    if (!confirm('🌐 Scan ALL devices? This may take a few minutes.')) return;
+    
+    showToast('🔄 Starting full network scan...', 'info');
     
     fetch('/api/scan/all', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'}
+        headers: { 'Content-Type': 'application/json' }
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
-        showToast('Full network scan started! Please wait...', 'success');
+        showToast('✅ Full scan initiated!', 'success');
         setTimeout(() => location.reload(), 15000);
     })
-    .catch(error => {
-        showToast('Error: ' + error, 'danger');
-    });
+    .catch(err => showToast('❌ Error: ' + err, 'danger'));
 }
 
 // ===== Delete Device =====
 function deleteDevice(deviceId) {
-    if (!confirm('Are you sure you want to delete this device and ALL its data?')) return;
+    if (!confirm('⚠️ Delete this device and ALL its data?')) return;
     
     fetch(`/api/device/${deviceId}/delete`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'}
+        headers: { 'Content-Type': 'application/json' }
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            showToast('Device deleted successfully', 'success');
+            showToast('✅ Device deleted', 'success');
             setTimeout(() => location.href = '/', 1000);
         } else {
-            showToast('Error: ' + data.message, 'danger');
+            showToast('❌ ' + data.message, 'danger');
         }
     })
-    .catch(error => {
-        showToast('Error: ' + error, 'danger');
-    });
+    .catch(err => showToast('❌ Error: ' + err, 'danger'));
 }
-
-// ===== Toast Notification =====
-function showToast(message, type) {
-    const container = document.querySelector('.container-fluid.mt-5');
-    if (!container) return;
-    
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type} alert-dismissible fade show`;
-    alert.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    container.prepend(alert);
-    
-    setTimeout(() => {
-        alert.classList.remove('show');
-        setTimeout(() => alert.remove(), 300);
-    }, 5000);
-}
-
-// ===== Auto-refresh status =====
-function autoRefreshStatus() {
-    fetch('/api/stats')
-    .then(response => response.json())
-    .then(data => {
-        // Update stats if elements exist
-        const el = document.querySelector('[data-stat="total"]');
-        if (el) el.textContent = data.total_devices;
-    })
-    .catch(() => {});
-}
-
-// Refresh every 30 seconds
-// setInterval(autoRefreshStatus, 30000);

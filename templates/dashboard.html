@@ -1,176 +1,148 @@
 {% extends "base.html" %}
-{% block title %}{{ device.node_name }} - Dashboard{% endblock %}
+{% block title %}{{ device.node_name }} - Overview{% endblock %}
 
 {% block content %}
 <div class="container-fluid px-0">
     <div class="row g-0">
-        <!-- Left Sidebar Navigation -->
-        <nav class="col-md-2 sidebar bg-dark min-vh-100 pt-3">
-            <!-- Device Selector -->
-            <div class="px-3 mb-3">
-                <select class="form-select form-select-sm bg-dark text-white border-secondary" 
-                        onchange="location.href='/device/' + this.value">
-                    {% for d in all_devices %}
-                        <option value="{{ d.id }}" {% if d.id == device.id %}selected{% endif %}>
-                            {{ d.node_name }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-            
-            <hr class="text-secondary mx-3">
-            
-            <ul class="nav flex-column sidebar-nav">
-                <li class="nav-item">
-                    <a class="nav-link active" href="{{ url_for('device_detail', device_id=device.id) }}">
-                        <i class="fas fa-tachometer-alt me-2"></i>Overview
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_vlans', device_id=device.id) }}">
-                        <i class="fas fa-sitemap me-2"></i>VLANs
-                        <span class="badge bg-primary float-end">{{ summary.total_vlans if summary else 0 }}</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_vlan_ips', device_id=device.id) }}">
-                        <i class="fas fa-network-wired me-2"></i>VLAN IPs
-                        <span class="badge bg-primary float-end">{{ summary.total_vlan_ips if summary else 0 }}</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_radius', device_id=device.id) }}">
-                        <i class="fas fa-shield-alt me-2"></i>RADIUS Server
-                        <span class="badge bg-{{ 'success' if summary and summary.total_radius_servers > 0 else 'secondary' }} float-end">
-                            {{ summary.total_radius_servers if summary else 0 }}
-                        </span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_log_server', device_id=device.id) }}">
-                        <i class="fas fa-file-alt me-2"></i>Log Server
-                        <span class="badge bg-{{ 'success' if summary and summary.total_log_servers > 0 else 'secondary' }} float-end">
-                            {{ summary.total_log_servers if summary else 0 }}
-                        </span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_snmp_server', device_id=device.id) }}">
-                        <i class="fas fa-cog me-2"></i>SNMP Config
-                        <span class="badge bg-{{ 'success' if summary and summary.total_snmp_configs > 0 else 'secondary' }} float-end">
-                            {{ summary.total_snmp_configs if summary else 0 }}
-                        </span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_syslog', device_id=device.id) }}">
-                        <i class="fas fa-clipboard-list me-2"></i>Syslog
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('device_cdp_neighbors', device_id=device.id) }}">
-                        <i class="fas fa-project-diagram me-2"></i>CDP Neighbors
-                        <span class="badge bg-info float-end">{{ summary.total_cdp_neighbors if summary else 0 }}</span>
-                    </a>
-                </li>
-            </ul>
-            
-            <hr class="text-secondary mx-3">
-            
-            <div class="px-3">
-                <button class="btn btn-success btn-sm w-100 mb-2" 
-                        onclick="scanDevice({{ device.id }})">
-                    <i class="fas fa-sync me-1"></i>Scan This Device
-                </button>
-                <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm w-100">
-                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
-                </a>
-            </div>
-        </nav>
-
-        <!-- Main Content Area -->
-        <main class="col-md-10 ms-auto px-4 pt-3">
-            <!-- Device Header -->
-            <div class="d-flex justify-content-between align-items-center mb-4">
+        {% set active_section = 'overview' %}
+        {% include "partials/_sidebar.html" %}
+        
+        <main class="col-md-10 ms-auto px-4 py-3">
+            <!-- Header: Node Name (CSV) + Hostname badge -->
+            <div class="animate-fade-in mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                    <h3 class="mb-1">
-                        <i class="fas fa-server me-2"></i>{{ device.node_name }}
+                    <h3 class="mb-1" style="font-weight:700;">
+                        <i class="fas fa-server me-2" style="color:var(--primary);"></i>{{ device.node_name }}
                     </h3>
-                    <span class="text-muted">
-                        <code>{{ device.ip_address }}</code> | 
+                    <div class="text-muted d-flex flex-wrap align-items-center gap-2">
+                        <code>{{ device.ip_address }}</code>
+                        <span>•</span>
                         {% if device.device_type == 'distribution_switch' %}
-                            <span class="badge bg-warning text-dark">Distribution Switch</span>
+                            <span class="badge bg-warning">Distribution Switch</span>
                         {% else %}
                             <span class="badge bg-info">Access Switch</span>
                         {% endif %}
-                        |
+                        <span>•</span>
                         {% if device.status == 'online' %}
-                            <span class="badge bg-success">Online</span>
+                            <span class="status-indicator online"></span><span class="badge bg-success">Online</span>
                         {% elif device.status == 'offline' %}
-                            <span class="badge bg-danger">Offline</span>
+                            <span class="status-indicator offline"></span><span class="badge bg-danger">Offline</span>
                         {% else %}
-                            <span class="badge bg-secondary">Unknown</span>
+                            <span class="status-indicator unknown"></span><span class="badge bg-secondary">Unknown</span>
                         {% endif %}
-                    </span>
+
+                        <!-- Hostname Tag (discovered from switch) -->
+                        {% if device.hostname %}
+                            <span>•</span>
+                            <span class="badge" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);">
+                                <i class="fas fa-desktop me-1"></i>Hostname: {{ device.hostname }}
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="scanDevice({{ device.id }})">
+                    <i class="fas fa-satellite-dish me-1"></i>Scan Device
+                </button>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-3 animate-fade-in-delay-1">
+                    <div class="stat-card gradient-1">
+                        <h6>VLANs</h6>
+                        <h2>{{ summary.total_vlans if summary else 0 }}</h2>
+                        <i class="fas fa-sitemap stat-icon"></i>
+                    </div>
+                </div>
+                <div class="col-md-3 animate-fade-in-delay-2">
+                    <div class="stat-card gradient-4">
+                        <h6>VLAN IPs</h6>
+                        <h2>{{ summary.total_vlan_ips if summary else 0 }}</h2>
+                        <i class="fas fa-network-wired stat-icon"></i>
+                    </div>
+                </div>
+                <div class="col-md-3 animate-fade-in-delay-3">
+                    <div class="stat-card gradient-5">
+                        <h6>RADIUS</h6>
+                        <h2>{{ summary.total_radius_servers if summary else 0 }}</h2>
+                        <i class="fas fa-shield-alt stat-icon"></i>
+                    </div>
+                </div>
+                <div class="col-md-3 animate-fade-in-delay-4">
+                    <div class="stat-card gradient-3">
+                        <h6>CDP Peers</h6>
+                        <h2>{{ summary.total_cdp_neighbors if summary else 0 }}</h2>
+                        <i class="fas fa-project-diagram stat-icon"></i>
+                    </div>
                 </div>
             </div>
 
-            <!-- Overview Cards -->
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <div class="card border-primary h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-sitemap fa-2x text-primary mb-2"></i>
-                            <h4>{{ summary.total_vlans if summary else 0 }}</h4>
-                            <p class="text-muted mb-0">VLANs</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card border-success h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-network-wired fa-2x text-success mb-2"></i>
-                            <h4>{{ summary.total_vlan_ips if summary else 0 }}</h4>
-                            <p class="text-muted mb-0">VLAN IPs</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card border-warning h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-shield-alt fa-2x text-warning mb-2"></i>
-                            <h4>{{ summary.total_radius_servers if summary else 0 }}</h4>
-                            <p class="text-muted mb-0">RADIUS Servers</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card border-info h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-project-diagram fa-2x text-info mb-2"></i>
-                            <h4>{{ summary.total_cdp_neighbors if summary else 0 }}</h4>
-                            <p class="text-muted mb-0">CDP Neighbors</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Device Info -->
-            <div class="card mt-4">
-                <div class="card-header bg-dark text-white">
-                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Device Information</h5>
+            <!-- Device Information -->
+            <div class="card animate-fade-in">
+                <div class="card-header">
+                    <i class="fas fa-info-circle me-2"></i><strong>Device Information</strong>
                 </div>
                 <div class="card-body">
-                    <table class="table table-bordered">
-                        <tr><th width="200">Node Name</th><td>{{ device.node_name }}</td></tr>
-                        <tr><th>IP Address</th><td><code>{{ device.ip_address }}</code></td></tr>
-                        <tr><th>Device Type</th><td>{{ device.device_type | replace('_', ' ') | title }}</td></tr>
-                        <tr><th>Status</th><td>{{ device.status | title }}</td></tr>
-                        <tr><th>SNMP Community</th><td>{{ device.snmp_community }}</td></tr>
-                        <tr><th>SSH Username</th><td>{{ device.ssh_username }}</td></tr>
-                        <tr><th>Last Scanned</th><td>{{ device.last_scanned or 'Never' }}</td></tr>
-                        <tr><th>Created At</th><td>{{ device.created_at }}</td></tr>
-                    </table>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="device-info-panel">
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-tag me-2"></i>Node Name</span>
+                                    <span class="info-value">{{ device.node_name }}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-desktop me-2"></i>Hostname</span>
+                                    <span class="info-value">
+                                        {% if device.hostname %}
+                                            <span class="badge" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);">{{ device.hostname }}</span>
+                                        {% else %}
+                                            <span class="text-muted">Not discovered yet</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-globe me-2"></i>IP Address</span>
+                                    <span class="info-value"><code>{{ device.ip_address }}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-microchip me-2"></i>Device Type</span>
+                                    <span class="info-value">{{ device.device_type | replace('_', ' ') | title }}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-heartbeat me-2"></i>Status</span>
+                                    <span class="info-value">
+                                        {% if device.status == 'online' %}
+                                            <span class="badge bg-success">Online</span>
+                                        {% elif device.status == 'offline' %}
+                                            <span class="badge bg-danger">Offline</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Unknown</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="device-info-panel">
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-key me-2"></i>SNMP Community</span>
+                                    <span class="info-value"><code>{{ device.snmp_community }}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-user me-2"></i>SSH Username</span>
+                                    <span class="info-value"><code>{{ device.ssh_username }}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-clock me-2"></i>Last Scanned</span>
+                                    <span class="info-value">{{ device.last_scanned or 'Never' }}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label"><i class="fas fa-calendar me-2"></i>Created</span>
+                                    <span class="info-value">{{ device.created_at }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>

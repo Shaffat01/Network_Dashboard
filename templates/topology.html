@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Network Topology Map{% endblock %}
+
+{% block content %}
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+    #mynetwork { width: 100%; height: calc(100vh - 100px); background: #0f172a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+</style>
+
+<div class="container-fluid px-4 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="text-white"><i class="fas fa-project-diagram me-2 text-info"></i>Live Network Topology</h3>
+        <span class="badge bg-secondary">Auto-generated via CDP</span>
+    </div>
+    <div id="mynetwork"></div>
+</div>
+
+<script>
+fetch('/api/topology_data').then(res => res.json()).then(data => {
+    const container = document.getElementById('mynetwork');
+    const options = {
+        nodes: { shape: 'icon', font: { color: '#ffffff' } },
+        edges: { font: { color: '#a5b4fc', size: 10, align: 'middle' }, color: '#4f46e5', arrows: 'to' },
+        groups: {
+            distribution_switch: { icon: { face: '"Font Awesome 5 Free"', code: '\uf548', size: 60, color: '#f59e0b' } }, // fas fa-project-diagram
+            access_switch: { icon: { face: '"Font Awesome 5 Free"', code: '\uf796', size: 50, color: '#06b6d4' } }, // fas fa-ethernet
+            unknown: { icon: { face: '"Font Awesome 5 Free"', code: '\uf233', size: 40, color: '#64748b' } } // fas fa-server
+        },
+        physics: { stabilization: { iterations: 200 } }
+    };
+    new vis.Network(container, data, options);
+});
+</script>
+{% endblock %}
