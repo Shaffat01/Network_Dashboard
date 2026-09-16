@@ -1,23 +1,69 @@
 ---
-- name: Network Data Collection via Ansible
+- name: Collect VLAN / IP / CDP from mixed Cisco fleet (2960 + SG300/350 + CBS350)
   hosts: switches
   gather_facts: no
+  connection: network_cli
+  vars:
+    ansible_network_os: ios
+    ansible_connection: network_cli
+    ansible_host_key_checking: false
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 
   tasks:
-    - name: Fetch VLAN, IP and CDP data from Switch
+    # ---------- Try standard IOS commands (works on 2960 + most SG/CBS) ----------
+    - name: Fetch show commands (IOS style)
       cisco.ios.ios_command:
         commands:
+          - terminal length 0
           - show vlan
           - show ip interface brief
           - show cdp neighbors
-      register: switch_output
+          - show version
+      register: ios_out
+      ignore_errors: yes
+      vars:
+        ansible_command_timeout: 45
 
-    - name: Pass collected output to Python DB Updater
+    # ---------- Fallback: raw CLI (SG300 sometimes hates ios_command module) ----------
+    - name: Fallback raw CLI when ios_command fails
+      ansible.netcommon.cli_command:
+        command: "{{ item }}"
+      loop:
+        - terminal length 0
+        - show vlan
+        - show ip interface brief
+        - show cdp neighbors
+      register: raw_out
+      when: ios_out is failed
+      ignore_errors: yes
+
+    # ---------- Build unified result object ----------
+    - name: Normalize output for Python DB updater
+      set_fact:
+        switch_result:
+          success: "{{ (ios_out is succeeded) or (raw_out is succeeded) }}"
+          method: "{{ 'ios_command' if ios_out is succeeded else 'cli_command' }}"
+          stdout: >-
+            {{
+              ios_out.stdout
+              if ios_out is succeeded
+              else (raw_out.results | map(attribute='stdout') | list)
+            }}
+          stderr: "{{ ios_out.stderr | default('') }}"
+          ansible_host: "{{ ansible_host | default(inventory_hostname) }}"
+
+    # ---------- Save into Flask SQLite via Python helper ----------
+    - name: Update Network Dashboard database
       delegate_to: localhost
+      connection: local
       command: >
-        python3 {{ playbook_dir }}/update_db.py "{{ ansible_host }}" '{{ switch_output | to_json }}'
-      register: db_status
+        python3 {{ playbook_dir }}/update_db.py
+        "{{ ansible_host | default(inventory_hostname) }}"
+        '{{ switch_result | to_json }}'
+      register: db_update
+      changed_when: "'Successfully updated' in db_update.stdout"
+      when: switch_result.success | bool
 
-    - name: Show Update Result
+    - name: Show result
       debug:
-        msg: "{{ db_status.stdout }}"
+        msg: "{{ inventory_hostname }} → {{ 'OK' if switch_result.success else 'FAILED' }} ({{ switch_result.method }})"
