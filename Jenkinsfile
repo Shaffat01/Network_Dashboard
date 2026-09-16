@@ -63,7 +63,8 @@ pipeline {
                       --vault-password-file .vault_pass \
                       -e "docker_image=${FULL_IMAGE}:${IMAGE_TAG}" \
                       -e "app_name=${IMAGE_NAME}" \
-                      -e "container_name=${IMAGE_NAME}"
+                      -e "container_name=${IMAGE_NAME}" \
+                      -e "app_port=5001"
                 """
             }
         }
