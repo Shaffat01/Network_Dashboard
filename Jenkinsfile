@@ -64,7 +64,8 @@ pipeline {
                       -e "docker_image=${FULL_IMAGE}:${IMAGE_TAG}" \
                       -e "app_name=${IMAGE_NAME}" \
                       -e "container_name=${IMAGE_NAME}" \
-                      -e "app_port=5001"
+                      -e "app_port=5001" \
+                      -e "secret_api_key=supersecretkey123"
                 """
             }
         }
