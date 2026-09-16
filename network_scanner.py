@@ -9,6 +9,16 @@ logger = logging.getLogger(__name__)
 class NetworkScanner:
 
     @classmethod
+    def _get_ansible_env(cls):
+        """Prepares environment variables for Ansible execution"""
+        env = os.environ.copy()
+        env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+        env["ANSIBLE_PARAMIKO_RECORD_HOST_KEYS"] = "False"
+        env["ANSIBLE_PERSISTENT_CONNECT_TIMEOUT"] = "30"
+        env["ANSIBLE_PERSISTENT_COMMAND_TIMEOUT"] = "30"
+        return env
+
+    @classmethod
     def scan_device(cls, device_id):
         """Scans a Single Device using Ansible"""
         device = Database.get_device(device_id)
@@ -33,11 +43,17 @@ class NetworkScanner:
             "-e", f"ansible_host={ip}",
             "-e", "ansible_network_os=cisco.ios.ios",
             "-e", "ansible_connection=network_cli",
-            "-e", "ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+            "-e", "ansible_host_key_checking=False"
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=90,
+                env=cls._get_ansible_env()
+            )
             logger.info(f"Ansible Scan Result for {ip}:\n{result.stdout}")
         except Exception as e:
             logger.error(f"Ansible Scan Error for {ip}: {e}")
@@ -55,7 +71,6 @@ class NetworkScanner:
 
         logger.info(f"🚀 Starting Bulk Ansible Scan for {len(devices)} devices...")
 
-        # Build Dynamic Inventory File from SQLite DB
         inventory_file = "/tmp/ansible_bulk_inventory.ini"
         with open(inventory_file, 'w') as f:
             f.write("[switches]\n")
@@ -68,18 +83,23 @@ class NetworkScanner:
             f.write("\n[switches:vars]\n")
             f.write("ansible_network_os=cisco.ios.ios\n")
             f.write("ansible_connection=network_cli\n")
-            f.write("ansible_ssh_common_args='-o StrictHostKeyChecking=no'\n")
+            f.write("ansible_host_key_checking=False\n")
 
-        # Run Ansible Playbook with 50 Parallel Forks for speed
         cmd = [
             "ansible-playbook",
             "-i", inventory_file,
             "ansible/collect_data.yml",
-            "-f", "50"  # Processes 50 switches simultaneously in parallel!
+            "-f", "50"  # Run 50 switches in parallel
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                env=cls._get_ansible_env()
+            )
             logger.info(f"Bulk Scan Completed:\n{result.stdout}")
         except Exception as e:
             logger.error(f"Bulk Ansible Scan Error: {e}")
